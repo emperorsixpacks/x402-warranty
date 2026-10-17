@@ -1,0 +1,6 @@
+fastapi[standard]>=0.115.0
+httpx>=0.27.0
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+web3>=7.0.0
+x402[fastapi,httpx]>=2.0.0
