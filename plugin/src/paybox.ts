@@ -13,7 +13,7 @@ const solana = z.object({
   transaction: z.object({ transactionBase64: z.string() }).strict(),
 }).strict();
 const x402 = z.object({
-  ...common, kind: z.literal("x402"), chain: z.enum(["eip155:8453", "solana:mainnet"]),
+  ...common, kind: z.literal("x402"), chain: z.string().regex(/^eip155:[0-9]+$/),
   request: z.object({ url: z.url().max(2048), method: z.enum(["GET", "POST"]), body: z.json().optional() }).strict(),
   payment: z.object({ asset: z.string(), maxAmount: z.string().regex(/^[1-9][0-9]{0,19}$/) }).strict(),
 }).strict();
@@ -58,7 +58,7 @@ export function proposeSolana(input: { transactionBase64: string; expiresAt?: st
   }));
 }
 
-export function proposeX402(input: { chain: "eip155:8453" | "solana:mainnet"; url: string; maxAmount: string; method?: "GET" | "POST"; body?: z.infer<ReturnType<typeof z.json>>; expiresAt?: string }) {
+export function proposeX402(input: { chain: string; url: string; maxAmount: string; method?: "GET" | "POST"; body?: z.infer<ReturnType<typeof z.json>>; expiresAt?: string }) {
   const url = new URL(input.url);
   const method = input.method ?? "GET";
   if (url.protocol !== "https:" || url.port && url.port !== "443" || url.username || url.password || url.hash) throw new Error("x402 requires HTTPS port 443 without URL credentials or fragments.");

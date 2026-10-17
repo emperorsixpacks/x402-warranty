@@ -35,6 +35,7 @@ class HostStats(BaseModel):
 
 class WarrantyQuoteResponse(BaseModel):
     tier: Literal["tier1", "tier2", "tier3"]
+    network: str
     warranted: bool
     upstream_price_atomic: str
     premium_atomic: str

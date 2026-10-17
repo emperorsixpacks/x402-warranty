@@ -6,6 +6,7 @@ import { proposeX402, x402OutputSchema } from "./paybox.js";
 
 const PROTOCOL_VERSION = "2026-07-28";
 const WARRANTY_BASE_URL = process.env.WARRANTY_BASE_URL || "https://warranty.example.com";
+const DEFAULT_CHAIN = process.env.WARRANTY_CHAIN || "eip155:84532";
 
 function createServer() {
   const server = new McpServer(
@@ -80,16 +81,18 @@ function createServer() {
       const query = `?url=${encodeURIComponent(input.url)}&method=${method}`;
       let callUrl: string;
       let maxAmount: string;
+      let chain: string;
       if (input.tier) {
         // Tier fallback avoids a network round-trip (keeps the conformance
         // sample offline). The ceiling is 1.5x the tier cap to cover the
         // maximum dynamic premium (38% of the upstream cap).
         callUrl = `${WARRANTY_BASE_URL}/v1/warranty/call/${input.tier}${query}`;
         maxAmount = input.tier === "tier1" ? "75000" : input.tier === "tier2" ? "375000" : "1500000";
+        chain = DEFAULT_CHAIN;
       } else {
         const quoteRes = await fetch(`${WARRANTY_BASE_URL}/v1/warranty/quote?url=${encodeURIComponent(input.url)}&method=${method}`);
-        const quote = await quoteRes.json() as { call_url?: string; warranty_price_atomic?: string; warranted?: boolean; reason?: string };
-        if (!quote.call_url || !quote.warranty_price_atomic) {
+        const quote = await quoteRes.json() as { call_url?: string; warranty_price_atomic?: string; network?: string; warranted?: boolean; reason?: string };
+        if (!quote.call_url || !quote.warranty_price_atomic || !quote.network) {
           return { content: [{ type: "text", text: `Quote failed: ${JSON.stringify(quote)}` }], isError: true };
         }
         if (!quote.warranted) {
@@ -97,6 +100,7 @@ function createServer() {
         }
         callUrl = `${quote.call_url}${query}`;
         maxAmount = quote.warranty_price_atomic;
+        chain = quote.network;
       }
       const payload: Record<string, unknown> = {
         url: input.url,
@@ -107,7 +111,7 @@ function createServer() {
       };
       if (input.body !== undefined) payload.body = input.body;
       return proposeX402({
-        chain: "eip155:8453",
+        chain,
         url: callUrl,
         method: "POST",
         body: payload as any,

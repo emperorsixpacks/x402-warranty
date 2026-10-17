@@ -212,6 +212,7 @@ async def quote(url: str, method: str = "GET"):
 
     return WarrantyQuoteResponse(
         tier=tier,
+        network=settings.x402_network,
         warranted=quote["warranted"],
         upstream_price_atomic=str(quote["upstream_price_atomic"]),
         premium_atomic=str(quote["premium_atomic"]),
