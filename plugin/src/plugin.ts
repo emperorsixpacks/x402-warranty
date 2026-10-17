@@ -33,7 +33,7 @@ function createServer() {
         upstream_url: z.string(),
         call_url: z.string(),
         host: z.string(),
-        host_stats: z.record(z.unknown()),
+        host_stats: z.record(z.string(), z.unknown()),
         reason: z.string().nullable().optional(),
       }).strict(),
       annotations: {
