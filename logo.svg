@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  
+  <!-- Shield -->
+  <path d="M256 48 L448 120 V244 C448 370 330 464 256 464 C182 464 64 370 64 244 V120 L256 48Z" 
+        fill="url(#shieldGrad)" filter="url(#shadow)" />
+  
+  <!-- Inner border -->
+  <path d="M256 72 L424 136 V244 C424 354 318 440 256 440 C194 440 88 354 88 244 V136 L256 72Z" 
+        fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="8" />
+  
+  <!-- Checkmark -->
+  <path d="M156 248 L224 318 L356 188" 
+        fill="none" stroke="white" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Coin / badge -->
+  <circle cx="360" cy="140" r="52" fill="#FBBF24" stroke="white" stroke-width="8" />
+  <text x="360" y="156" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" 
+        font-size="44" font-weight="bold" fill="#1F2937" text-anchor="middle">$</text>
+</svg>
