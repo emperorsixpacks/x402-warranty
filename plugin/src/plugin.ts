@@ -22,7 +22,6 @@ async function probeChallenge(
       signal: controller.signal,
     });
     clearTimeout(timer);
-    if (process.env.X402_WARRANTY_DEBUG) process.stderr.write(`[probe] status=${res.status}\n`);
     if (res.status !== 402) return null;
     const header = res.headers.get("payment-required") ?? res.headers.get("PAYMENT-REQUIRED");
     if (!header) return null;
@@ -30,11 +29,9 @@ async function probeChallenge(
       accepts?: Array<{ amount?: string; network?: string }>;
     };
     const accept = decoded.accepts?.[0];
-    if (process.env.X402_WARRANTY_DEBUG) process.stderr.write(`[probe] accept=${JSON.stringify(accept)}\n`);
     if (!accept?.amount || !/^[1-9][0-9]{0,19}$/.test(accept.amount)) return null;
     return { amount: accept.amount, network: accept.network };
-  } catch (err) {
-    if (process.env.X402_WARRANTY_DEBUG) process.stderr.write(`[probe] error=${String(err)}\n`);
+  } catch {
     return null;
   }
 }
