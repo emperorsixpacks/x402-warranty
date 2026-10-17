@@ -9,10 +9,12 @@ The two tools mirror the stdio plugin: `quote_warranty` quotes a target URL and
 """
 
 import json
+import os
 import time
 from typing import Any
 from urllib.parse import quote
 
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
@@ -95,6 +97,15 @@ CALL_OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
+TWO_KEYS_BASE_URL = os.environ.get("TWO_KEYS_BASE_URL", "https://two-keys.example.com")
+
+X402_PROPOSAL_ONLY_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {"io.paybox/transactionProposal": X402_PROPOSAL_SCHEMA},
+    "required": ["io.paybox/transactionProposal"],
+    "additionalProperties": False,
+}
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "quote_warranty",
@@ -153,6 +164,93 @@ TOOLS: list[dict[str, Any]] = [
             "destructiveHint": False,
             "idempotentHint": False,
             "openWorldHint": True,
+        },
+    },
+    {
+        "name": "two_keys_start",
+        "title": "Start a Two Keys mystery session",
+        "description": "Starts a new in-chat mystery game and returns the case file, suspects, evidence menu, and budget.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "team_name": {"type": "string", "maxLength": 64},
+                "base_url": {"type": "string", "format": "uri", "maxLength": 2048},
+            },
+            "additionalProperties": False,
+        },
+        "outputSchema": {"type": "object"},
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "two_keys_buy_evidence",
+        "title": "Buy a Two Keys evidence clue",
+        "description": "Proposes the x402 payment for one evidence source. Pass the exact price_atomic from the evidence menu.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "maxLength": 64},
+                "evidence_id": {"type": "integer", "minimum": 1, "maximum": 6},
+                "price_atomic": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+                "base_url": {"type": "string", "format": "uri", "maxLength": 2048},
+            },
+            "required": ["session_id", "evidence_id", "price_atomic"],
+            "additionalProperties": False,
+        },
+        "outputSchema": X402_PROPOSAL_ONLY_OUTPUT_SCHEMA,
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "two_keys_accuse",
+        "title": "Make a Two Keys final accusation",
+        "description": "Proposes the x402 payment to accuse one suspect. This is a one-shot, paid action.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "maxLength": 64},
+                "suspect": {"type": "string", "maxLength": 64},
+                "price_atomic": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+                "base_url": {"type": "string", "format": "uri", "maxLength": 2048},
+            },
+            "required": ["session_id", "suspect", "price_atomic"],
+            "additionalProperties": False,
+        },
+        "outputSchema": X402_PROPOSAL_ONLY_OUTPUT_SCHEMA,
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "two_keys_receipt",
+        "title": "Get Two Keys receipt",
+        "description": "Fetches the receipt for a session, showing every purchase, tx hash, duplicates, and score.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": {"type": "string", "maxLength": 64},
+                "base_url": {"type": "string", "format": "uri", "maxLength": 2048},
+            },
+            "required": ["session_id"],
+            "additionalProperties": False,
+        },
+        "outputSchema": {"type": "object"},
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
         },
     },
 ]
@@ -273,6 +371,85 @@ async def _tool_call(arguments: dict) -> dict:
     )
 
 
+async def _tool_two_keys_start(arguments: dict) -> dict:
+    base_url = arguments.get("base_url") or TWO_KEYS_BASE_URL
+    team_name = arguments.get("team_name") or "Team PayBox"
+    try:
+        res = httpx.post(f"{base_url}/v1/game/start", json={"team_name": team_name}, timeout=10.0)
+        res.raise_for_status()
+    except Exception as exc:
+        return _tool_text(f"Two Keys start failed: {exc}", is_error=True)
+    data = res.json()
+    evidence = "\n".join(f"  {ev['id']}. {ev['name']} - {ev['price']} - {ev['teaser']}" for ev in data.get("evidence_menu", []))
+    suspects = "\n".join(f"  {s['id']}: {s['name']} ({s['role']})" for s in data.get("suspects", []))
+    text = f"Session: {data['session_id']}\nBudget: {data['budget']}\n\nCase File:\n{data['case_file']}\nSuspects:\n{suspects}\n\nEvidence Menu:\n{evidence}\n\nRules:\n{data['rules']}"
+    return _tool_text(text, structured=data)
+
+
+async def _tool_two_keys_buy_evidence(arguments: dict) -> dict:
+    session_id = arguments.get("session_id")
+    evidence_id = arguments.get("evidence_id")
+    price_atomic = arguments.get("price_atomic")
+    base_url = arguments.get("base_url") or TWO_KEYS_BASE_URL
+    if not session_id or not evidence_id or not price_atomic:
+        raise ProtocolError(-32602, "Invalid params: session_id, evidence_id, and price_atomic are required")
+    url = f"{base_url}/v1/game/{session_id}/evidence/{evidence_id}"
+    proposal = {
+        "version": "1",
+        "expiresAt": _expiry(),
+        "kind": "x402",
+        "chain": settings.x402_network,
+        "request": {"url": url, "method": "POST", "body": {}},
+        "payment": {"asset": settings.usdc_contract, "maxAmount": str(price_atomic)},
+    }
+    return _tool_text(
+        "Unsigned proposal prepared. PayBox must validate and obtain any required approval.",
+        structured={"io.paybox/transactionProposal": proposal},
+    )
+
+
+async def _tool_two_keys_accuse(arguments: dict) -> dict:
+    session_id = arguments.get("session_id")
+    suspect = arguments.get("suspect")
+    price_atomic = arguments.get("price_atomic")
+    base_url = arguments.get("base_url") or TWO_KEYS_BASE_URL
+    if not session_id or not suspect or not price_atomic:
+        raise ProtocolError(-32602, "Invalid params: session_id, suspect, and price_atomic are required")
+    url = f"{base_url}/v1/game/{session_id}/accuse"
+    body = {"suspect": suspect}
+    proposal = {
+        "version": "1",
+        "expiresAt": _expiry(),
+        "kind": "x402",
+        "chain": settings.x402_network,
+        "request": {"url": url, "method": "POST", "body": body},
+        "payment": {"asset": settings.usdc_contract, "maxAmount": str(price_atomic)},
+    }
+    return _tool_text(
+        "Unsigned proposal prepared. PayBox must validate and obtain any required approval.",
+        structured={"io.paybox/transactionProposal": proposal},
+    )
+
+
+async def _tool_two_keys_receipt(arguments: dict) -> dict:
+    session_id = arguments.get("session_id")
+    base_url = arguments.get("base_url") or TWO_KEYS_BASE_URL
+    if not session_id:
+        raise ProtocolError(-32602, "Invalid params: 'session_id' is required")
+    try:
+        res = httpx.get(f"{base_url}/v1/game/{session_id}/receipt", timeout=10.0)
+        res.raise_for_status()
+    except Exception as exc:
+        return _tool_text(f"Two Keys receipt failed: {exc}", is_error=True)
+    data = res.json()
+    items = "\n".join(
+        f"  - {p['name']}: {p['price']} (duplicate: {p['duplicate']}, helped: {p['helped']}, tx: {p['tx_hash'] or 'n/a'})"
+        for p in data.get("purchases", [])
+    )
+    text = f"Receipt for {data['session_id']}\nTeam: {data['team_name']}\nBudget: {data['budget']} | Spent: {data['spent']} | Remaining: {data['remaining']}\nAccused: {data['accused']} | Won: {data['won']}\n\nPurchases:\n{items or '  (none)'}"
+    return _tool_text(text, structured=data)
+
+
 async def _dispatch(message: dict) -> dict | Response:
     request_id = message.get("id")
     method = message.get("method")
@@ -313,6 +490,14 @@ async def _dispatch(message: dict) -> dict | Response:
             return _result(request_id, await _tool_quote(arguments))
         if name == "call_warranty":
             return _result(request_id, await _tool_call(arguments))
+        if name == "two_keys_start":
+            return _result(request_id, await _tool_two_keys_start(arguments))
+        if name == "two_keys_buy_evidence":
+            return _result(request_id, await _tool_two_keys_buy_evidence(arguments))
+        if name == "two_keys_accuse":
+            return _result(request_id, await _tool_two_keys_accuse(arguments))
+        if name == "two_keys_receipt":
+            return _result(request_id, await _tool_two_keys_receipt(arguments))
         raise ProtocolError(-32602, f"Unknown tool: {name}")
 
     raise ProtocolError(-32601, f"Method not found: {method}")

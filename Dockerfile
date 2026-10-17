@@ -16,5 +16,5 @@ COPY server ./server
 
 ENV PYTHONPATH=/app/server
 
-# Run the warranty server
-CMD ["uv", "run", "python", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the Two Keys game server by default. Override to run the warranty server.
+CMD ["uv", "run", "python", "-m", "uvicorn", "server.two_keys:app", "--host", "0.0.0.0", "--port", "8000"]

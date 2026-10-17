@@ -33,8 +33,8 @@ from config import settings
 # Game configuration
 # ---------------------------------------------------------------------------
 
-BUDGET = 50_000_000  # $0.50 in atomic USDC (6 decimals)
-ACCUSE_PRICE = 10_000_000  # $0.10
+BUDGET = 500_000  # $0.50 in atomic USDC (6 decimals)
+ACCUSE_PRICE = 100_000  # $0.10
 
 EVIDENCE = [
     {
@@ -141,7 +141,9 @@ CASE_INTRO = """Two Keys - Case File: The Nebula Dynamics Quantum Core Heist
 
 Nebula Dynamics, a cutting-edge quantum computing firm, discovered that its flagship Quantum Core was stolen from the underground vault between 2:00 AM and 3:00 AM last Tuesday. The vault door was opened with a valid security badge, but the internal motion sensors were disabled for exactly 22 minutes. The company has five employees with access to the vault area, and a $0.50 budget to spend on evidence.
 
-Your job: buy only the evidence you need, identify the culprit, and make the accusation. The case is solvable with smart spending; a full sweep of every source costs more than the budget.
+Win condition: identify the culprit in a single paid accusation while staying under budget. Score is correctness first, then money left, then fewest purchases. The case is solvable with smart spending; a full sweep of every source costs more than the budget.
+
+Note: Because each evidence purchase is a paid action, players may want to set PayBox to ask before purchases so a human approval is required for every spend.
 """
 
 # ---------------------------------------------------------------------------
@@ -172,10 +174,6 @@ class Session:
 _sessions: dict[str, Session] = {}
 _last_accessed: dict[str, float] = {}
 SESSION_TTL_SECONDS = 30 * 60
-
-
-def _atomic_to_dollars(atomic: int) -> str:
-    return f"${atomic / 1_000_000:.2f}"
 
 
 def _money_str(atomic: int) -> str:
@@ -210,6 +208,26 @@ def _cleanup_expired():
     for sid in expired:
         _sessions.pop(sid, None)
         _last_accessed.pop(sid, None)
+
+
+# Simple in-memory rate limits. For production, swap for a Redis-backed store.
+_rate_buckets: dict[str, list[float]] = {}
+RATE_WINDOW_SECONDS = 60
+MAX_STARTS_PER_IP_PER_WINDOW = 20
+
+
+def _check_rate_limit(ip: str | None, max_count: int = MAX_STARTS_PER_IP_PER_WINDOW) -> bool:
+    """Return True if request is allowed, False if rate limited."""
+    if not ip:
+        return True
+    now = time.time()
+    bucket = _rate_buckets.get(ip, [])
+    bucket = [t for t in bucket if now - t < RATE_WINDOW_SECONDS]
+    if len(bucket) >= max_count:
+        return False
+    bucket.append(now)
+    _rate_buckets[ip] = bucket
+    return True
 
 
 def _evidence_by_id(eid: int) -> dict | None:
@@ -308,6 +326,14 @@ async def health():
 async def start_game(request: Request):
     """Start a new Two Keys session. Free."""
     _cleanup_expired()
+    ip = request.client.host if request.client else None
+    if not _check_rate_limit(ip):
+        return JSONResponse({"error": "rate limit exceeded"}, status_code=429)
+
+    content_length = int(request.headers.get("content-length", 0))
+    if content_length > 10_000:
+        return JSONResponse({"error": "request body too large"}, status_code=413)
+
     body = {}
     try:
         body = await request.json()
@@ -316,7 +342,6 @@ async def start_game(request: Request):
     team_name = body.get("team_name") if isinstance(body, dict) else None
     if not isinstance(team_name, str) or not team_name:
         team_name = "Team PayBox"
-    ip = request.client.host if request.client else None
     session = _new_session(ip, team_name)
 
     evidence_menu = [
@@ -330,10 +355,9 @@ async def start_game(request: Request):
         for ev in EVIDENCE
     ]
     rules = (
-        "You are playing Two Keys, a cooperative in-chat mystery. "
-        "The agent may propose evidence to buy; the human approves each purchase. "
-        "Goal: identify the culprit, spend as little of the budget as possible, "
-        "and make the final accusation. Set PayBox to ask before purchases."
+        "Game mechanics: each evidence source and the final accusation are paid actions. "
+        "Budget is $0.50. Score is correctness, then money remaining, then fewest purchases. "
+        "Duplicate purchases return the same clue and are flagged in the receipt."
     )
     return {
         "session_id": session.session_id,

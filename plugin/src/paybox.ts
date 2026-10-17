@@ -29,7 +29,7 @@ function result<T>(proposal: T) {
   };
 }
 
-function envelope(expiresAt = new Date(Date.now() + 240_000).toISOString().replace(/\.\d{3}Z$/, "Z")) {
+function envelope(expiresAt = new Date(Date.now() + 295_000).toISOString().replace(/\.\d{3}Z$/, "Z")) {
   const timestamp = Date.parse(expiresAt);
   const now = Date.now();
   if (!Number.isFinite(timestamp) || timestamp <= now || timestamp > now + 300_000 || new Date(timestamp).toISOString().replace(/\.\d{3}Z$/, "Z") !== expiresAt) {

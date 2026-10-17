@@ -60,7 +60,14 @@ def test_initial_notification_accepted(client):
 def test_tools_list(client):
     res = _rpc(client, {"method": "tools/list"})
     tools = res.json()["result"]["tools"]
-    assert [t["name"] for t in tools] == ["quote_warranty", "call_warranty"]
+    assert [t["name"] for t in tools] == [
+        "quote_warranty",
+        "call_warranty",
+        "two_keys_start",
+        "two_keys_buy_evidence",
+        "two_keys_accuse",
+        "two_keys_receipt",
+    ]
     for tool in tools:
         assert tool["inputSchema"]["type"] == "object"
         assert "outputSchema" in tool
