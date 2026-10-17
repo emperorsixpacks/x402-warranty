@@ -6,7 +6,7 @@ import { proposeX402, x402OutputSchema } from "./paybox.js";
 
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2026-07-28"];
 const WARRANTY_BASE_URL = process.env.WARRANTY_BASE_URL || "https://warranty.example.com";
-const DEFAULT_CHAIN = process.env.WARRANTY_CHAIN || "eip155:84532";
+const DEFAULT_CHAIN = process.env.WARRANTY_CHAIN || "eip155:8453";
 
 function createServer() {
   const server = new McpServer(
