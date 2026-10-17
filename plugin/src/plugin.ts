@@ -8,6 +8,38 @@ const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2026-07-28"];
 const WARRANTY_BASE_URL = process.env.WARRANTY_BASE_URL || "https://warranty.example.com";
 const DEFAULT_CHAIN = process.env.WARRANTY_CHAIN || "eip155:8453";
 
+async function probeChallenge(
+  callUrl: string,
+  payload: Record<string, unknown>,
+): Promise<{ amount: string; network?: string } | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(callUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (process.env.X402_WARRANTY_DEBUG) process.stderr.write(`[probe] status=${res.status}\n`);
+    if (res.status !== 402) return null;
+    const header = res.headers.get("payment-required") ?? res.headers.get("PAYMENT-REQUIRED");
+    if (!header) return null;
+    const decoded = JSON.parse(Buffer.from(header, "base64").toString("utf-8")) as {
+      accepts?: Array<{ amount?: string; network?: string }>;
+    };
+    const accept = decoded.accepts?.[0];
+    if (process.env.X402_WARRANTY_DEBUG) process.stderr.write(`[probe] accept=${JSON.stringify(accept)}\n`);
+    if (!accept?.amount || !/^[1-9][0-9]{0,19}$/.test(accept.amount)) return null;
+    return { amount: accept.amount, network: accept.network };
+  } catch (err) {
+    if (process.env.X402_WARRANTY_DEBUG) process.stderr.write(`[probe] error=${String(err)}\n`);
+    return null;
+  }
+}
+
+
 function createServer() {
   const server = new McpServer(
     { name: "x402-warranty", version: "0.1.0" },
@@ -46,10 +78,28 @@ function createServer() {
     async ({ url, method }) => {
       const target = `${WARRANTY_BASE_URL}/v1/warranty/quote?url=${encodeURIComponent(url)}&method=${method || "GET"}`;
       const res = await fetch(target, { method: "GET" });
+      const quote = await res.json() as { tier?: string; reason?: string; upstream_price_atomic?: string; warranty_price_atomic?: string; network?: string };
       if (!res.ok) {
-        return { content: [{ type: "text", text: `Quote failed: ${res.status}` }], isError: true };
+        // Errors must still carry structuredContent: the tool declares an
+        // outputSchema, and PayBox rejects a result whose shape does not match.
+        return {
+          content: [{ type: "text", text: `Quote failed: ${quote.reason ?? res.status}` }],
+          structuredContent: {
+            tier: quote.tier ?? "reject",
+            network: quote.network ?? DEFAULT_CHAIN,
+            warranted: false,
+            upstream_price_atomic: quote.upstream_price_atomic ?? "0",
+            premium_atomic: "0",
+            warranty_price_atomic: quote.warranty_price_atomic ?? "0",
+            upstream_url: url,
+            call_url: "",
+            host: "",
+            host_stats: {},
+            reason: quote.reason ?? `HTTP ${res.status}`,
+          },
+          isError: true,
+        };
       }
-      const quote = await res.json() as { tier: string; upstream_price_atomic: string; warranty_price_atomic: string };
       return {
         content: [{ type: "text", text: `Tier: ${quote.tier}, upstream: ${quote.upstream_price_atomic}, warranty: ${quote.warranty_price_atomic}` }],
         structuredContent: quote,
@@ -87,16 +137,25 @@ function createServer() {
     async (input) => {
       const method = input.method ?? "GET";
       const query = `?url=${encodeURIComponent(input.url)}&method=${method}`;
+      const payload: Record<string, unknown> = {
+        url: input.url,
+        method,
+        headers: input.headers ?? {},
+        expect: input.expect ?? {},
+        max_price_usd: input.max_price_usd ?? "1.00",
+      };
+      if (input.body !== undefined) payload.body = input.body;
+
       let callUrl: string;
       let maxAmount: string;
       let chain: string;
       if (input.tier) {
-        // Tier fallback avoids a network round-trip (keeps the conformance
-        // sample offline). The ceiling is 1.5x the tier cap to cover the
-        // maximum dynamic premium (38% of the upstream cap).
         callUrl = `${WARRANTY_BASE_URL}/v1/warranty/call/${input.tier}${query}`;
-        maxAmount = input.tier === "tier1" ? "75000" : input.tier === "tier2" ? "375000" : "1500000";
         chain = DEFAULT_CHAIN;
+        // Ceiling is 1.5x the tier cap to cover the maximum dynamic premium.
+        // It is only a fallback: we probe the live 402 below so maxAmount is
+        // the exact amount, which must fit the caller's PayBox spending cap.
+        maxAmount = input.tier === "tier1" ? "75000" : input.tier === "tier2" ? "375000" : "1500000";
       } else {
         const quoteRes = await fetch(`${WARRANTY_BASE_URL}/v1/warranty/quote?url=${encodeURIComponent(input.url)}&method=${method}`);
         const quote = await quoteRes.json() as { call_url?: string; warranty_price_atomic?: string; network?: string; warranted?: boolean; reason?: string };
@@ -111,14 +170,13 @@ function createServer() {
         maxAmount = quote.warranty_price_atomic;
         chain = quote.network;
       }
-      const payload: Record<string, unknown> = {
-        url: input.url,
-        method,
-        headers: input.headers ?? {},
-        expect: input.expect ?? {},
-        max_price_usd: input.max_price_usd ?? "1.00",
-      };
-      if (input.body !== undefined) payload.body = input.body;
+
+      const challenge = await probeChallenge(callUrl, payload);
+      if (challenge) {
+        maxAmount = challenge.amount;
+        if (challenge.network) chain = challenge.network;
+      }
+
       return proposeX402({
         chain,
         url: callUrl,
