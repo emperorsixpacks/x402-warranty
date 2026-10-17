@@ -49,7 +49,7 @@ app = FastAPI(title="x402 Warranty v3", lifespan=lifespan)
 
 facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=settings.facilitator_url))
 x402_server = x402ResourceServer(facilitator)
-x402_server.register("eip155:84532", ExactEvmServerScheme())
+x402_server.register(settings.x402_network, ExactEvmServerScheme())
 
 # Shared quote cache so the /v1/warranty/quote response and the x402 middleware
 # price callback agree for the lifetime of a payment attempt.

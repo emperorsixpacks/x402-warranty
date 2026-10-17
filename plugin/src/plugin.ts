@@ -25,8 +25,16 @@ function createServer() {
       }).strict(),
       outputSchema: z.object({
         tier: z.string(),
+        network: z.string(),
+        warranted: z.boolean(),
         upstream_price_atomic: z.string(),
+        premium_atomic: z.string(),
         warranty_price_atomic: z.string(),
+        upstream_url: z.string(),
+        call_url: z.string(),
+        host: z.string(),
+        host_stats: z.object({}),
+        reason: z.string().nullable().optional(),
       }).strict(),
       annotations: {
         readOnlyHint: true,

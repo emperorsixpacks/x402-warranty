@@ -14,7 +14,7 @@ from config import settings
 
 facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=settings.facilitator_url))
 x402_server = x402ResourceServer(facilitator)
-x402_server.register("eip155:84532", ExactEvmServerScheme())
+x402_server.register(settings.x402_network, ExactEvmServerScheme())
 
 demo_app = FastAPI()
 
