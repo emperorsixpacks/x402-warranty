@@ -29,7 +29,6 @@ INSTRUCTIONS = (
 
 # 1.5x the tier cap, covering the maximum dynamic premium (38% of upstream).
 TIER_MAX_AMOUNT = {"tier1": "75000", "tier2": "375000", "tier3": "1500000"}
-BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
 
 QUOTE_OUTPUT_SCHEMA = {
     "type": "object",
@@ -263,7 +262,7 @@ async def _tool_call(arguments: dict) -> dict:
         "kind": "x402",
         "chain": chain,
         "request": {"url": call_url, "method": "POST", "body": payload},
-        "payment": {"asset": BASE_USDC, "maxAmount": str(max_amount)},
+        "payment": {"asset": settings.usdc_contract, "maxAmount": str(max_amount)},
     }
     if len(json.dumps(payload)) > 64 * 1024:
         raise ProtocolError(-32602, "Invalid params: x402 JSON body exceeds 64 KiB")

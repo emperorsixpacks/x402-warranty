@@ -126,7 +126,7 @@ def test_call_tool_tier_fallback_is_offline(client, env):
     assert proposal["kind"] == "x402"
     assert proposal["chain"] == "eip155:84532"
     assert proposal["payment"]["maxAmount"] == "75000"
-    assert proposal["payment"]["asset"] == "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+    assert proposal["payment"]["asset"] == "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
     assert proposal["request"]["method"] == "POST"
     assert proposal["request"]["url"].startswith(
         "https://warranty.example.com/v1/warranty/call/tier1?url=https%3A%2F%2Fapi.example.com%2Fdata&method=GET"

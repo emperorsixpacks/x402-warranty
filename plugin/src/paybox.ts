@@ -64,9 +64,16 @@ export function proposeX402(input: { chain: string; url: string; maxAmount: stri
   if (url.protocol !== "https:" || url.port && url.port !== "443" || url.username || url.password || url.hash) throw new Error("x402 requires HTTPS port 443 without URL credentials or fragments.");
   if (method === "GET" && input.body !== undefined) throw new Error("x402 GET requests cannot have a body.");
   if (Buffer.byteLength(JSON.stringify(input.body ?? null)) > 64 * 1024) throw new Error("x402 JSON body exceeds 64 KiB.");
+
+  // Pick the right USDC contract for the configured chain.
+  const [_, chainId] = input.chain.split(":");
+  const asset = chainId === "84532" ? "0x036CbD53842c5426634e7929541eC2318f3dCF7e"  // Base Sepolia USDC
+    : chainId === "8453" ? "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"      // Base mainnet USDC
+    : "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";                           // fallback mainnet
+
   const proposal = x402.parse({ ...envelope(input.expiresAt), kind: "x402", chain: input.chain,
     request: { url: url.toString(), method, ...(input.body === undefined ? {} : {body: input.body}) },
-    payment: { asset: input.chain === "solana:mainnet" ? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" : "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", maxAmount: input.maxAmount },
+    payment: { asset, maxAmount: input.maxAmount },
   });
   if (BigInt(proposal.payment.maxAmount) >= 2n ** 64n) throw new Error("x402 maxAmount exceeds uint64.");
   return result(proposal);
