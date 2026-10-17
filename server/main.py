@@ -15,6 +15,7 @@ from x402.http.types import HTTPRequestContext, RouteConfig
 from x402.mechanisms.evm.exact import ExactEvmServerScheme
 
 from config import settings
+from mcp_http import router as mcp_router
 from ledger import (
     add_accounting_entry,
     compute_premium,
@@ -177,6 +178,7 @@ def build_routes() -> dict:
 
 
 app.add_middleware(PaymentMiddlewareASGI, routes=build_routes(), server=x402_server)
+app.include_router(mcp_router)
 
 
 @app.get("/health")
@@ -184,17 +186,17 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/v1/warranty/quote")
-async def quote(url: str, method: str = "GET"):
+async def quote_payload(url: str, method: str) -> tuple[dict, int]:
+    """Build the quote response body. Shared by the REST route and the MCP tool."""
     method = method.upper()
     if method not in {"GET", "POST"}:
-        return JSONResponse({"tier": "reject", "reason": f"method not allowed: {method}"}, status_code=400)
+        return {"tier": "reject", "reason": f"method not allowed: {method}"}, 400
     try:
         quote = await _build_quote(url, method)
     except SSRFError as exc:
-        return JSONResponse({"tier": "reject", "reason": str(exc)}, status_code=400)
+        return {"tier": "reject", "reason": str(exc)}, 400
     except ValueError as exc:
-        return JSONResponse({"tier": "reject", "reason": str(exc)}, status_code=400)
+        return {"tier": "reject", "reason": str(exc)}, 400
 
     tier = quote["tier"]
     # Tier-history gate applies at quote time: cold hosts only get tier1 coverage.
@@ -202,15 +204,12 @@ async def quote(url: str, method: str = "GET"):
         if quote["upstream_price_atomic"] <= settings.tier1_max_atomic:
             tier = "tier1"
         else:
-            return JSONResponse(
-                {"tier": "reject", "reason": f"host needs {settings.tier1_host_max_calls}+ calls for coverage above tier1"},
-                status_code=400,
-            )
+            return {"tier": "reject", "reason": f"host needs {settings.tier1_host_max_calls}+ calls for coverage above tier1"}, 400
 
     base = settings.public_url.rstrip("/") if settings.public_url else f"http://{settings.host}:{settings.port}"
     call_url = f"{base}/v1/warranty/call/{tier}?url={urlquote(url, safe='')}&method={method}"
 
-    return WarrantyQuoteResponse(
+    payload = WarrantyQuoteResponse(
         tier=tier,
         network=settings.x402_network,
         warranted=quote["warranted"],
@@ -223,6 +222,13 @@ async def quote(url: str, method: str = "GET"):
         host_stats=quote["host_stats"],
         reason=quote["reason"],
     )
+    return payload.model_dump(), 200
+
+
+@app.get("/v1/warranty/quote")
+async def quote(url: str, method: str = "GET"):
+    body, status = await quote_payload(url, method)
+    return JSONResponse(body, status_code=status)
 
 
 @app.post("/v1/warranty/call/{tier}")

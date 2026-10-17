@@ -98,7 +98,8 @@ function createServer() {
         if (!quote.warranted) {
           return { content: [{ type: "text", text: `Warranty not offered: ${quote.reason ?? "unknown reason"}` }], isError: true };
         }
-        callUrl = `${quote.call_url}${query}`;
+        // call_url already carries ?url=...&method=... for the price callback.
+        callUrl = quote.call_url;
         maxAmount = quote.warranty_price_atomic;
         chain = quote.network;
       }
@@ -123,4 +124,4 @@ function createServer() {
   return server;
 }
 
-serveStdio(createServer, { legacy: "reject" });
+serveStdio(createServer, { legacy: "serve" });
